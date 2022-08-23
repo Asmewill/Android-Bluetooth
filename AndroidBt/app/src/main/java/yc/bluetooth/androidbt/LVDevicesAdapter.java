@@ -17,7 +17,7 @@ import java.util.List;
 public class LVDevicesAdapter extends BaseAdapter {
 
     private Context context;
-    private List<BluetoothDevice> list;
+    public static List<BluetoothDevice> list;
 
     public LVDevicesAdapter(Context context) {
         this.context = context;

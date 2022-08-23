@@ -3,17 +3,15 @@ package yc.bluetooth.androidbt;
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.print.PrinterId;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -24,6 +22,14 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.blankj.utilcode.constant.PermissionConstants;
+import com.blankj.utilcode.util.PermissionUtils;
+import com.blankj.utilcode.util.ToastUtils;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 
 import yc.bluetooth.androidbt.util.ClsUtils;
 
@@ -67,7 +73,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private BluetoothAdapter bluetoothAdapter;
     private BtBroadcastReceiver btBroadcastReceiver;
     //连接设备的UUID
-    public static final String MY_BLUETOOTH_UUID = "00001101-0000-1000-8000-00805F9B34FB";  //蓝牙通讯
+    public static final String MY_BLUETOOTH_UUID = "00001105-0000-1000-8000-00805f9B34FB";  //蓝牙通讯
     //当前要连接的设备
     private BluetoothDevice curBluetoothDevice;
     //发起连接的线程
@@ -79,28 +85,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     //当前设备与系统配对状态
     private boolean curBondState = false;
 
-
     @SuppressLint("HandlerLeak")
     private Handler mHandler = new Handler(){
         @Override
         public void handleMessage(Message msg) {
             super.handleMessage(msg);
-
             switch(msg.what){
                 case START_DISCOVERY:
                     Log.d(TAG, "开始搜索设备...");
                     break;
-
                 case STOP_DISCOVERY:
                     Log.d(TAG, "停止搜索设备...");
                     break;
-
                 case DISCOVERY_DEVICE:  //扫描到设备
                     BluetoothDevice bluetoothDevice = (BluetoothDevice) msg.obj;
                     lvDevicesAdapter.addDevice(bluetoothDevice);
-
                     break;
-
                 case CONNECT_FAILURE: //连接失败
                     Log.d(TAG, "连接失败");
                     tvCurConState.setText("连接失败");
@@ -139,17 +139,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     String receiveResult = (String) msg.obj;
                     tvReceive.setText(receiveResult);
                     break;
-
                 case DEVICE_BOND_NONE:  //已解除配对
                     tvCurBondState.setText("解除配对成功");
                     curBondState = false;
-
                     break;
-
                 case DEVICE_BONDING:   //正在配对
                     tvCurBondState.setText("正在配对...");
                     break;
-
                 case DEVICE_BONDED:   //已配对
                     tvCurBondState.setText("配对成功");
                     curBondState = true;
@@ -174,11 +170,21 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         initBluetooth();
         //初始化蓝牙广播
         initBtBroadcast();
+
+        //添加已经绑定的设备到列表
+        lvDevicesAdapter.list.clear();
+        lvDevicesAdapter.notifyDataSetChanged();
+        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+        List<BluetoothDevice> bluetoothDevices = Arrays.asList(pairedDevices.toArray(new BluetoothDevice[0]));
+        for (BluetoothDevice device : bluetoothDevices) {
+            lvDevicesAdapter.list.add(device);
+        }
     }
 
     private void initData() {
         lvDevicesAdapter = new LVDevicesAdapter(MainActivity.this);
         lvDevices.setAdapter(lvDevicesAdapter);
+
     }
 
     private void initView() {
@@ -223,9 +229,20 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onClick(View view) {
         switch (view.getId()) {
             case R.id.bt_search:  //搜索蓝牙
-                llDataSendReceive.setVisibility(View.GONE);
-                llDeviceList.setVisibility(View.VISIBLE);
-                searchBtDevice();
+                PermissionUtils.permission(PermissionConstants.LOCATION).callback(new PermissionUtils.FullCallback() {
+                    @Override
+                    public void onGranted(List<String> permissionsGranted) {
+                        llDataSendReceive.setVisibility(View.GONE);
+                        llDeviceList.setVisibility(View.VISIBLE);
+                        searchBtDevice();
+                    }
+
+                    @Override
+                    public void onDenied(List<String> permissionsDeniedForever, List<String> permissionsDenied) {
+
+                    }
+                }).request();
+
                 break;
 
             case R.id.bt_connect: //连接蓝牙
@@ -597,6 +614,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         intentFilter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);//扫描结束
         intentFilter.addAction(BluetoothDevice.ACTION_FOUND);//搜索到设备
         intentFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED); //配对状态监听
+        intentFilter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);//连接完成
+        intentFilter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);//断开连接
         registerReceiver(btBroadcastReceiver,intentFilter);
 
     }
@@ -629,7 +648,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 message.what = STOP_DISCOVERY;
                 mHandler.sendMessage(message);
 
-            } else if (TextUtils.equals(action, BluetoothDevice.ACTION_FOUND)) {  //3.0搜索到设备
+            }else if(action.equals(BluetoothDevice.ACTION_ACL_CONNECTED)){
+                ToastUtils.showLong("Socket已连接上了");
+
+            } else if(action.equals(BluetoothDevice.ACTION_ACL_DISCONNECTED)){
+                ToastUtils.showLong("Socket断开连接了");
+                clearConnectedThread();
+            }  else if (TextUtils.equals(action, BluetoothDevice.ACTION_FOUND)) {  //3.0搜索到设备
                 //蓝牙设备
                 BluetoothDevice bluetoothDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 //信号强度
